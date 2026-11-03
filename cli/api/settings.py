@@ -66,6 +66,9 @@ class ApiSettings:
     # Pick up runs a restart cut off; each run is started at most this many times.
     resume_on_start: bool = True
     max_attempts: int = 3
+    # The interactive docs (/docs, /redoc, /openapi.json). Off by default: they
+    # show anyone how the API is laid out, though not its data.
+    docs: bool = False
 
     @classmethod
     def from_env(cls) -> ApiSettings:
@@ -79,4 +82,5 @@ class ApiSettings:
             checkpoint_by_default=_env_bool("TRADINGAGENTS_API_CHECKPOINT", True),
             resume_on_start=_env_bool("TRADINGAGENTS_API_RESUME_ON_START", True),
             max_attempts=_env_int("TRADINGAGENTS_API_MAX_ATTEMPTS", 3),
+            docs=_env_bool("TRADINGAGENTS_API_DOCS", False),
         )

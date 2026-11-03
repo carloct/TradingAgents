@@ -5,7 +5,7 @@
 ```bash
 pip install ".[api]"
 export TRADINGAGENTS_API_KEY=a-long-random-string   # required: every run spends provider credit
-tradingagents serve                                  # http://127.0.0.1:8000, interactive docs at /docs
+TRADINGAGENTS_API_DOCS=true tradingagents serve      # http://127.0.0.1:8000, interactive docs at /docs
 ```
 
 ## Endpoints
@@ -34,6 +34,14 @@ Send the key as `Authorization: Bearer <key>` or `X-API-Key: <key>`. A browser `
 
 Without `TRADINGAGENTS_API_KEY` the server refuses to start. `tradingagents serve --no-auth` serves without a key, on 127.0.0.1 only.
 
+Every response tells the browser not to cache it (`Cache-Control: no-store`), not to show it in a frame, and not to pass its address on to a site it links to (`Referrer-Policy: no-referrer`), so a report opened with `?access_token=` does not leak the key through its links. The report page loads and runs nothing.
+
+### Hardening the server
+
+- Set a spending limit for the provider key: anyone holding the API key can start runs.
+- Behind Cloudflare, accept ports 80 and 443 only from [Cloudflare's addresses](https://www.cloudflare.com/ips/), use SSL mode **Full (strict)**, and keep the Dokploy panel (port 3000) off the public internet.
+- Rotate the key if it has been pasted anywhere it should not stay: change `TRADINGAGENTS_API_KEY` and redeploy.
+
 ## Settings
 
 A run's settings come from the same `TRADINGAGENTS_*` variables the CLI reads (provider, models, depth, language), overridden per request. The server's own:
@@ -47,6 +55,7 @@ A run's settings come from the same `TRADINGAGENTS_*` variables the CLI reads (p
 | `TRADINGAGENTS_API_CHECKPOINT` | `true` | Checkpoint runs unless a request says otherwise, so a cut-off run resumes. |
 | `TRADINGAGENTS_API_RESUME_ON_START` | `true` | Continue runs a restart cut off. |
 | `TRADINGAGENTS_API_MAX_ATTEMPTS` | `3` | Starts a run gets before it is left `interrupted`. |
+| `TRADINGAGENTS_API_DOCS` | `false` | Serve the interactive docs at `/docs`, `/redoc` and `/openapi.json`. They show anyone how the API is laid out, though not its data. |
 
 ## Restarts and the CLI
 

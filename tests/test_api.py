@@ -280,3 +280,58 @@ def test_serve_refuses_to_start_without_a_key_except_locally_with_no_auth(monkey
     assert runner.invoke(cli_main.app, ["serve", "--host", "0.0.0.0", "--port", "9000"]).exit_code == 0
     assert [(kw["host"], kw["port"], kw["workers"]) for kw in served] == [
         ("127.0.0.1", 8000, 1), ("0.0.0.0", 9000, 1)]
+
+
+@pytest.mark.unit
+def test_the_interactive_docs_are_served_only_when_switched_on(paths):
+    with _client(paths) as client:
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert client.get(path).status_code == 404, path
+    with _client(paths, docs=True) as client:
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert client.get(path).status_code == 200, path
+        # Swagger UI loads its scripts from a CDN; the API's strict policy would block them.
+        assert "content-security-policy" not in client.get("/docs").headers
+
+
+@pytest.mark.unit
+@pytest.mark.usefixtures("offline")
+def test_every_response_carries_the_security_headers(paths, model):
+    """A report opened as ...?access_token=<key> must not hand that address to a
+    site it links to, and nothing private may be cached or framed."""
+    with _client(paths) as client:
+        run_id = _start(client, analysts=["market"]).json()["id"]
+        _wait(client, run_id)
+        responses = {
+            "health": client.get("/healthz"),
+            "refused": client.get("/api/v1/runs"),
+            "json": client.get("/api/v1/runs", headers=AUTH),
+            "report": client.get(f"/api/v1/runs/{run_id}/report", params={"access_token": KEY}),
+            "stream": client.get(f"/api/v1/runs/{run_id}/events",
+                                 headers={"accept": "text/event-stream", **AUTH}),
+        }
+
+    for name, response in responses.items():
+        headers = response.headers
+        assert headers["referrer-policy"] == "no-referrer", name
+        assert headers["x-content-type-options"] == "nosniff", name
+        assert headers["x-frame-options"] == "DENY", name
+        assert "frame-ancestors 'none'" in headers["content-security-policy"], name
+        assert "default-src 'none'" in headers["content-security-policy"], name
+    assert responses["report"].headers["cache-control"] == "no-store"
+    assert responses["stream"].headers["cache-control"] == "no-cache"   # its own, kept once
+    assert responses["stream"].headers.get_list("cache-control") == ["no-cache"]
+
+
+@pytest.mark.unit
+def test_cors_lets_in_only_the_configured_origin(paths):
+    with _client(paths, cors_origins=("https://app.example.com",)) as client:
+        def preflight(origin):
+            return client.options("/api/v1/runs", headers={
+                "Origin": origin, "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization"})
+
+        allowed, foreign = preflight("https://app.example.com"), preflight("https://evil.example")
+    assert allowed.headers["access-control-allow-origin"] == "https://app.example.com"
+    assert "access-control-allow-origin" not in foreign.headers
+    assert allowed.headers["referrer-policy"] == "no-referrer"

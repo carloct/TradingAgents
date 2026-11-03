@@ -45,6 +45,55 @@ POLL_SECONDS = 0.5
 HEARTBEAT_SECONDS = 15.0
 
 
+# The report page loads and runs nothing (see report_html), and nothing here is
+# meant to be framed. Sent as a header too: a <meta> policy cannot forbid framing.
+_CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+    "form-action 'none'; frame-ancestors 'none'"
+)
+_SECURITY_HEADERS = [
+    (b"x-content-type-options", b"nosniff"),
+    (b"x-frame-options", b"DENY"),
+    # A report opened as ...?access_token=<key> would otherwise pass that address
+    # on to a site it links to (browsers send only the origin by default, but a
+    # page or browser can widen that).
+    (b"referrer-policy", b"no-referrer"),
+    # Runs, reports and the memory log are private: no proxy or browser cache keeps them.
+    (b"cache-control", b"no-store"),
+]
+# The interactive docs load Swagger UI and ReDoc from a CDN and run scripts.
+_DOCS_PATHS = ("/docs", "/redoc")
+
+
+class SecurityHeaders:
+    """Add the security headers to every response.
+
+    Plain ASGI rather than ``BaseHTTPMiddleware``, which wraps streaming
+    responses and gets in the way of a live event stream noticing a disconnect.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        docs = scope["path"].startswith(_DOCS_PATHS)
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                # A header the response sets itself wins (the event stream's Cache-Control).
+                present = {k.lower() for k, _ in headers}
+                headers += [(k, v) for k, v in _SECURITY_HEADERS if k not in present]
+                if not docs:
+                    headers.append((b"content-security-policy", _CONTENT_SECURITY_POLICY.encode()))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
 def _store(request: Request) -> s.RunStore:
     return request.app.state.store
 
@@ -83,6 +132,9 @@ def create_app(settings: ApiSettings | None = None, manager_class=RunManager) ->
         title="TradingAgents API",
         version=tradingagents.__version__,
         lifespan=lifespan,
+        docs_url="/docs" if settings.docs else None,
+        redoc_url="/redoc" if settings.docs else None,
+        openapi_url="/openapi.json" if settings.docs else None,
     )
     if settings.cors_origins:
         app.add_middleware(
@@ -91,6 +143,8 @@ def create_app(settings: ApiSettings | None = None, manager_class=RunManager) ->
             allow_methods=["*"],
             allow_headers=["*"],
         )
+    # Added last so it wraps everything, CORS responses included.
+    app.add_middleware(SecurityHeaders)
 
     def require_key(request: Request) -> None:
         """Bearer token, X-API-Key header, or ``access_token`` in the query.

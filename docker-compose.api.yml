@@ -5,7 +5,7 @@
 # docker-compose.yml when both run from the same directory, and the CLI is in the
 # same image: open a terminal in the api container and run `tradingagents ...`.
 #
-# Set TRADINGAGENTS_API_KEY and your provider keys in .env (Dokploy writes its
+# See docs/API.md. Set TRADINGAGENTS_API_KEY and your provider keys in .env (Dokploy writes its
 # Environment tab there). No port is published: put a domain in front of port
 # 8000 (in Dokploy, Domains -> service "api", port 8000).
 services:

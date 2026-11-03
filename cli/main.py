@@ -160,6 +160,50 @@ def backtest(
         console.print(f"[yellow]unsettled:[/yellow] {ticker}: {reason}")
 
 
+_LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Address to listen on; 0.0.0.0 in a container"),
+    port: int = typer.Option(8000, "--port", help="Port to listen on"),
+    no_auth: bool = typer.Option(
+        False, "--no-auth", help="Serve without an API key; only on this machine (127.0.0.1)"
+    ),
+):
+    """Serve the web API: start analyses, follow them live, read their reports.
+
+    Runs beside the CLI on the same results, memory log and checkpoints. Needs
+    the api extra (pip install "tradingagents[api]") and TRADINGAGENTS_API_KEY.
+    """
+    try:
+        import uvicorn
+
+        from cli.api.app import create_app
+        from cli.api.settings import ApiSettings
+    except ImportError as exc:
+        console.print(f"[red]The web API needs its extra: pip install \"tradingagents[api]\" ({exc})[/red]")
+        raise typer.Exit(code=1) from None
+    try:
+        settings = ApiSettings.from_env()
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    if settings.api_key is None and not no_auth:
+        console.print("[red]Set TRADINGAGENTS_API_KEY: every run spends your model provider's credit. "
+                      "On your own machine, --no-auth serves without one.[/red]")
+        raise typer.Exit(code=1)
+    if settings.api_key is None and host not in _LOOPBACK:
+        console.print("[red]--no-auth serves only on this machine; set TRADINGAGENTS_API_KEY "
+                      f"to listen on {host}.[/red]")
+        raise typer.Exit(code=1)
+    # One worker process: it owns the run store and the runs in flight. A short
+    # graceful shutdown, since open event streams would otherwise hold it until
+    # the container is killed; a cut-off run resumes on the next start.
+    uvicorn.run(create_app(settings), host=host, port=port, workers=1,
+                timeout_graceful_shutdown=5, proxy_headers=True, forwarded_allow_ips="*")
+
+
 # The plans `login` and `logout` take: the providers signed in to, not keyed.
 Plan = StrEnum("Plan", {name: name for name in SIGNED_IN_PROVIDERS})
 

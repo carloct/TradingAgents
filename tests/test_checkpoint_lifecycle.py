@@ -168,3 +168,27 @@ def test_clearing_removes_the_database_sidecars(tmp_path):
 
     assert cleared == 1
     assert list(cp.iterdir()) == []
+
+
+@pytest.mark.unit
+def test_a_second_run_on_the_same_checkpoint_thread_is_refused_until_the_first_ends():
+    """The CLI and the API share checkpoints; two runs writing one thread would
+    each resume a mix of both."""
+    from tradingagents.graph.checkpointer import RunInProgressError
+
+    with tempfile.TemporaryDirectory() as tmp:
+        first, second = _bare_graph(tmp), _bare_graph(tmp)
+        args = ("AAPL", "2026-05-08", "stock")
+        first.begin_checkpoint(*args)
+        try:
+            with pytest.raises(RunInProgressError, match="AAPL"):
+                second.begin_checkpoint(*args)
+            assert second._checkpointer_ctx is None   # nothing left held
+            other_day = second.begin_checkpoint("AAPL", "2026-05-07", "stock")
+            assert other_day
+            second.end_checkpoint()
+        finally:
+            first.end_checkpoint()
+
+        assert second.begin_checkpoint(*args)
+        second.end_checkpoint()

@@ -2,7 +2,7 @@ import hashlib
 import json
 import logging
 import os
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,7 +19,7 @@ from tradingagents.memory import TradingMemoryLog, settlement
 from tradingagents.memory.reflection import Reflector
 from tradingagents.reporting import write_report_tree
 
-from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
+from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, run_lock, thread_id
 from .conditional_logic import ConditionalLogic
 from .propagation import Propagator
 from .setup import GraphSetup
@@ -199,13 +199,20 @@ class TradingAgentsGraph:
         this so ``--checkpoint`` actually resumes (#1249); previously the setup
         lived only inside ``propagate`` and the CLI streamed the checkpointer-less
         graph, making the flag a no-op.
+
+        Raises ``RunInProgressError`` when another run, in this process or
+        another (the CLI beside the API), holds the same checkpoint thread.
         """
         self._resuming = False
         if not self.config.get("checkpoint_enabled"):
             return None
         signature = self._run_signature(asset_type, portfolio)
-        self._checkpointer_ctx = get_checkpointer(self.config["data_cache_dir"], company_name)
-        saver = self._checkpointer_ctx.__enter__()
+        tid = thread_id(company_name, str(trade_date), signature)
+        # The lock and the saver are released together by end_checkpoint.
+        with ExitStack() as stack:
+            stack.enter_context(run_lock(self.config["data_cache_dir"], company_name, tid))
+            saver = stack.enter_context(get_checkpointer(self.config["data_cache_dir"], company_name))
+            self._checkpointer_ctx = stack.pop_all()
         self.graph = self.workflow.compile(checkpointer=saver)
 
         step = checkpoint_step(
@@ -216,7 +223,7 @@ class TradingAgentsGraph:
             logger.info("Resuming from step %d for %s on %s", step, company_name, trade_date)
         else:
             logger.info("Starting fresh for %s on %s", company_name, trade_date)
-        return thread_id(company_name, str(trade_date), signature)
+        return tid
 
     def checkpoint_input(self, init_state):
         """The value to stream/invoke: ``None`` to resume an existing checkpoint,

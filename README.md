@@ -157,6 +157,31 @@ For local models with Ollama:
 docker compose --profile ollama run --rm tradingagents-ollama
 ```
 
+### Web API
+
+`tradingagents serve` runs a web API beside the CLI, for a web app to start analyses and follow them live. It uses the same settings, results, memory log and checkpoints as the CLI, so a run started from either appears in the other's history.
+
+```bash
+pip install ".[api]"
+export TRADINGAGENTS_API_KEY=a-long-random-string   # required: every run spends provider credit
+tradingagents serve                                  # http://127.0.0.1:8000, docs at /docs
+```
+
+| Endpoint | |
+|---|---|
+| `POST /api/v1/runs` | Queue an analysis: `{"ticker": "NVDA", "trade_date": "2026-09-23", "analysts": ["market", "news"]}`. Also `research_depth`, `llm_provider`, `deep_think_llm`, `quick_think_llm`, `output_language`, `checkpoint`, `portfolio`. |
+| `GET /api/v1/runs/{id}/events` | The run's progress as Server-Sent Events (status, agent messages and tool calls, each report section as it is written, token counts). Reconnecting replays what was missed. Without `Accept: text/event-stream` it returns the events so far as JSON. |
+| `GET /api/v1/runs/{id}` | The run's status, rating and, once completed, its final state. |
+| `GET /api/v1/runs/{id}/report` | The saved report as one HTML page (`?format=md` for markdown). |
+| `POST /api/v1/runs/{id}/cancel`, `/retry` | Stop a run after its current step; run a failed, cancelled or interrupted one again. |
+| `GET /api/v1/runs`, `/history`, `/memory`, `/options` | API runs; every finished analysis, the CLI's included; the memory log; what a run can be configured with. |
+
+Send the key as `Authorization: Bearer <key>` or `X-API-Key`. A browser `EventSource` and a report link cannot send headers, so those take `?access_token=<key>`. Set `TRADINGAGENTS_API_CORS_ORIGINS` when the web app is served from another domain. The other `TRADINGAGENTS_API_*` settings are in `.env.example`.
+
+API runs are checkpointed and kept in `~/.tradingagents/api/runs.db`. A run cut off by a restart or redeploy resumes from its last finished step when the server starts again. The server runs as a single process; run one replica.
+
+**Deploying (e.g. Dokploy).** `docker-compose.api.yml` builds the image's `api` stage and keeps its data in the `tradingagents_data` volume. In Dokploy, create a Compose service from this repository with that compose path, set `TRADINGAGENTS_API_KEY` and your provider keys under Environment, and add a domain for service `api` on port 8000. The CLI is in the same container: open its terminal and run, for example, `tradingagents --ticker NVDA --date 2026-09-23 --analysts market,news --save --no-show`.
+
 ### Required APIs
 
 TradingAgents supports multiple LLM providers. Set the API key for your chosen provider:

@@ -13,7 +13,12 @@ from pathlib import Path
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
+from tradingagents.dataflows.files import locked
 from tradingagents.dataflows.symbols import safe_ticker_component
+
+
+class RunInProgressError(RuntimeError):
+    """Another run, in this process or another, holds the same checkpoint thread."""
 
 
 def _db_path(data_dir: str | Path, ticker: str) -> Path:
@@ -49,6 +54,24 @@ def get_checkpointer(data_dir: str | Path, ticker: str) -> Generator[SqliteSaver
         yield saver
     finally:
         conn.close()
+
+
+@contextmanager
+def run_lock(data_dir: str | Path, ticker: str, tid: str) -> Generator[None, None, None]:
+    """Hold one checkpoint thread for a single run at a time, across processes.
+
+    Two runs on one thread (the CLI and the API on the same ticker, date and
+    settings) would each write the other's checkpoints and resume a mix of both.
+    The second is refused rather than queued: it would only redo the first's work.
+    """
+    locks = Path(data_dir) / "checkpoints" / "locks"
+    locks.mkdir(parents=True, exist_ok=True)
+    with locked(locks / f"{safe_ticker_component(ticker).upper()}.{tid}", wait=False) as held:
+        if not held:
+            raise RunInProgressError(
+                f"another run of {ticker} with the same date and settings is in progress"
+            )
+        yield
 
 
 def checkpoint_step(data_dir: str | Path, ticker: str, date: str, signature: str = "") -> int | None:

@@ -1,0 +1,29 @@
+# The web API, for a server such as Dokploy (point the compose path at this
+# file) or locally: docker compose -f docker-compose.api.yml up -d
+#
+# It shares the tradingagents_data volume with the CLI service in
+# docker-compose.yml when both run from the same directory, and the CLI is in the
+# same image: open a terminal in the api container and run `tradingagents ...`.
+#
+# Set TRADINGAGENTS_API_KEY and your provider keys in .env (Dokploy writes its
+# Environment tab there). No port is published: put a domain in front of port
+# 8000 (in Dokploy, Domains -> service "api", port 8000).
+services:
+  api:
+    build:
+      context: .
+      target: api
+    env_file:
+      - path: .env
+        required: false
+    expose:
+      - "8000"
+    volumes:
+      - ${TRADINGAGENTS_DATA_DIR:-tradingagents_data}:/home/appuser/.tradingagents
+    # Runs stop at their next step on shutdown and resume on the next start;
+    # the grace period lets most reach that step instead of being killed mid-call.
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+volumes:
+  tradingagents_data:

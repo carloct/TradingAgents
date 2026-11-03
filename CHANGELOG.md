@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Changes that need action when upgrading are listed under "Upgrading from" in their release.
 
+## [Unreleased]
+
+### Added
+
+- A web API beside the CLI: `tradingagents serve` starts analyses, streams their progress live (Server-Sent Events), and serves their reports, the run history and the memory log, for a web app to build on. It needs `pip install "tradingagents[api]"` and a `TRADINGAGENTS_API_KEY`. Runs are kept on disk and a run cut off by a restart or redeploy resumes from its last finished step. `docker-compose.api.yml` deploys it, for example on Dokploy, with the CLI in the same container.
+
+### Fixed
+
+- Two runs of the same ticker, date and settings with checkpointing on, such as one from the CLI and one from the API, no longer write into one checkpoint; the second is refused while the first runs.
+
 ## [0.7.1] — 2026-10-27
 
 Decisions are scored only on final closes and settle across long market holidays, a model's unpadded date no longer reads filings made after the run date, and fixes to portfolios, prices, SEC statements, reports, Azure and Claude settings.

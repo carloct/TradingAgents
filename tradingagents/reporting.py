@@ -73,8 +73,11 @@ _SECTIONS = (
 )
 
 
-def _report_parts(final_state: dict) -> list[tuple[str, str, list[tuple[str, str, str]]]]:
-    """The sections with something to say: (heading, folder, [(agent, file, text)])."""
+def report_parts(final_state: dict) -> list[tuple[str, str, list[tuple[str, str, str]]]]:
+    """The sections with something to say: (heading, folder, [(agent, file, text)]).
+
+    Public so the web API streams each section under the name the saved report uses.
+    """
     parts = []
     for heading, folder, agents in _SECTIONS:
         written = []
@@ -101,7 +104,7 @@ def write_report_tree(final_state: dict, ticker: str, save_path, settings: dict 
     """
     save_path = Path(save_path)
     save_path.mkdir(parents=True, exist_ok=True)
-    parts = _report_parts(final_state)
+    parts = report_parts(final_state)
     sections = []
     for heading, folder, written in parts:
         (save_path / folder).mkdir(exist_ok=True)
